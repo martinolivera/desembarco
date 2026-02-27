@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulador de Batallas Históricas - Prototipo v2</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #1a1a1a;
+            color: #ecf0f1;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #ui-header {
+            width: 100%;
+            max-width: 1000px;
+            padding: 10px;
+            background: #2c3e50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+            border-bottom: 2px solid #34495e;
+        }
+
+        #battle-info {
+            max-width: 600px;
+        }
+
+        h1 { margin: 0; font-size: 1.2rem; color: #f1c40f; }
+        p { margin: 5px 0 0; font-size: 0.9rem; color: #bdc3c7; }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #turn-indicator {
+            padding: 5px 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .turn-player { background-color: #2980b9; color: white; }
+        .turn-enemy { background-color: #c0392b; color: white; }
+
+        #end-turn-btn {
+            padding: 10px 20px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        #end-turn-btn:hover { background-color: #2ecc71; }
+        #end-turn-btn:disabled { 
+            background-color: #7f8c8d; 
+            cursor: not-allowed; 
+        }
+
+        #unit-status {
+            font-size: 0.85rem;
+            color: #bdc3c7;
+        }
+
+        #game-container {
+            position: relative;
+            margin-top: 20px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            border: 4px solid #34495e;
+        }
+
+        canvas {
+            background-color: #5d6d7e;
+            display: block;
+            cursor: crosshair;
+        }
+
+        #log-panel {
+            width: 100%;
+            max-width: 1000px;
+            height: 120px;
+            background: #000;
+            margin-top: 10px;
+            overflow-y: auto;
+            font-family: monospace;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #333;
+            font-size: 0.85rem;
+        }
+        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+        .log-player { color: #3498db; }
+        .log-enemy { color: #e74c3c; }
+        .log-system { color: #f1c40f; }
+
+        /* Tooltip para unidades */
+        #tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            padding: 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            border: 1px solid #34495e;
+        }
+        #tooltip h3 { margin: 0 0 5px 0; color: #f1c40f; font-size: 14px; }
+        #tooltip p { margin: 2px 0; font-size: 12px; }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-header">
+        <div id="battle-info">
+            <h1 id="battle-title">Cargando batalla...</h1>
+            <p id="battle-desc">...</p>
+            <p id="battle-objective" style="color: #2ecc71; font-weight: bold;"></p>
+        </div>
+        <div id="controls">
+            <div id="unit-status">Unidades activas: <span id="active-count">0</span></div>
+            <div id="turn-indicator" class="turn-player">Turno: Jugador</div>
+            <button id="end-turn-btn">Finalizar Turno</button>
+        </div>
+    </div>
+
+        <div id="assets-panel" style="width:100%;max-width:1000px;padding:10px;box-sizing:border-box;display:flex;gap:12px;align-items:center;background:#22313a;border-top:1px solid #34495e;">
+            <label style="font-size:13px;color:#bdc3c7;">Mapa (imagen): <input id="map-file" type="file" accept="image/*"></label>
+            <label style="font-size:13px;color:#bdc3c7;">Sprite Unidades Jugador: <input id="player-sprite-file" type="file" accept="image/*"></label>
+            <label style="font-size:13px;color:#bdc3c7;">Sprite Unidades Enemigo: <input id="enemy-sprite-file" type="file" accept="image/*"></label>
+            <div style="flex:1"></div>
+            <label style="font-size:13px;color:#bdc3c7;">Guion (JSON): <input id="scenario-file" type="file" accept="application/json"></label>
+            <button id="load-scenario-btn" style="padding:6px 10px;border-radius:4px;border:none;background:#2980b9;color:#fff;cursor:pointer;">Cargar guion pegado</button>
+        </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="tooltip"></div>
+    </div>
+
+    <div id="log-panel"></div>
+
+    <div id="page-footer" style="width:100%;max-width:1000px;padding:8px 10px;box-sizing:border-box;color:#95a5a6;font-size:12px;text-align:center;background:transparent;margin-top:8px;">
+        © 2026 - Art by @merbarrutiart
+    </div>
+
+<script src="js/game.js"></script>
+</body>
+</html>
