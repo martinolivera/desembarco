@@ -89,6 +89,9 @@ class Game {
         this.enemySprite = null;
         this.currentScenarioKey = 'ensenada1807';
 
+    // audio assets container
+    this.sounds = {};
+
         // Setup asset inputs
         this.setupAssetInputs();
         
@@ -99,7 +102,42 @@ class Game {
         this.setupInput();
         this.updateUI();
         this.loadDefaultAssets();
+        this.loadSounds();
         this.loop();
+    }
+
+    loadSounds() {
+        const base = 'assets/sounds/';
+        const files = {
+            cambioTurno: 'cambioTurno.wav',
+            click: 'click.wav',
+            correr: 'correr.wav',
+            marchaPaso: 'marchaPaso.wav',
+            marchaDosPasos: 'marchaDosPasos.wav',
+            disparo: 'disparo.wav',
+            impacto: 'impacto.wav'
+        };
+
+        Object.entries(files).forEach(([key, fname]) => {
+            try {
+                const a = new Audio(base + fname);
+                a.preload = 'auto';
+                a.volume = 0.7;
+                // swallow errors silently
+                a.addEventListener('error', () => {});
+                this.sounds[key] = a;
+            } catch (err) {
+                // ignore
+            }
+        });
+    }
+
+    playSound(name) {
+        const s = this.sounds && this.sounds[name];
+        if (!s) return;
+        try { s.currentTime = 0; } catch (e) {}
+        const p = s.play();
+        if (p && p.catch) p.catch(() => {});
     }
 
     setupAssetInputs() {
@@ -271,6 +309,7 @@ class Game {
         if (clickedUnit) {
             if (clickedUnit.isActionable()) {
                 this.selectUnit(clickedUnit);
+                this.playSound('click');
             } else {
                 this.log("Esta unidad ya ha actuado este turno.", "system");
             }
@@ -358,6 +397,7 @@ class Game {
         unit.x = x;
         unit.y = y;
         unit.hasMoved = true;
+        this.playSound('marchaPaso');
         this.log(`${unit.stats.name} se mueve a (${x},${y})`, unit.side);
         
         this.validMoves = [];
@@ -370,7 +410,11 @@ class Game {
         defender.hp -= damage;
         attacker.hasAttacked = true;
         
-        this.log(`${attacker.stats.name} ataca a ${defender.stats.name} (-${damage} HP)`, attacker.side);
+    this.playSound('disparo');
+    // pequeño retardo para impacto
+    setTimeout(() => this.playSound('impacto'), 120);
+
+    this.log(`${attacker.stats.name} ataca a ${defender.stats.name} (-${damage} HP)`, attacker.side);
 
         if (defender.hp <= 0) {
             this.units = this.units.filter(u => u !== defender);
@@ -386,7 +430,8 @@ class Game {
         this.state = 'ENEMY_TURN';
         this.deselect();
         this.updateUI();
-        this.log("--- Turno del Enemigo ---", 'system');
+    this.log("--- Turno del Enemigo ---", 'system');
+    this.playSound('cambioTurno');
         
         setTimeout(() => this.runEnemyAI(), 1000);
     }
@@ -421,8 +466,10 @@ class Game {
                         
                         if (dx !== 0 && this.isValidMove(enemy, enemy.x + dx, enemy.y)) {
                             enemy.x += dx;
+                            this.playSound('marchaPaso');
                         } else if (dy !== 0 && this.isValidMove(enemy, enemy.x, enemy.y + dy)) {
                             enemy.y += dy;
+                            this.playSound('marchaPaso');
                         }
                     }
                 }
