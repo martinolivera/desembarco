@@ -57,6 +57,9 @@ class Unit {
         this.hasMoved = false;
         this.hasAttacked = false;
         this.id = Math.random().toString(36).substr(2, 9);
+    this.state = 'standing'; // standing | walking | pointing
+    this.animIndex = 0;
+    this._animTimer = null;
     }
 
     resetTurn() {
@@ -111,7 +114,6 @@ class Game {
         const files = {
             cambioTurno: 'cambioTurno.wav',
             click: 'click.wav',
-            correr: 'correr.wav',
             marchaPaso: 'marchaPaso.wav',
             marchaDosPasos: 'marchaDosPasos.wav',
             disparo: 'disparo.wav',
@@ -138,6 +140,91 @@ class Game {
         try { s.currentTime = 0; } catch (e) {}
         const p = s.play();
         if (p && p.catch) p.catch(() => {});
+    }
+
+    // Animations: walking and pointing
+    animateWalk(unit, steps = 4, speed = 180) {
+        if (!unit) return;
+        unit.state = 'walking';
+        unit.animIndex = 0;
+        if (unit._animTimer) clearInterval(unit._animTimer);
+        unit._animTimer = setInterval(() => {
+            unit.animIndex = (unit.animIndex + 1) % 4;
+        }, speed);
+        // stop after steps*speed ms
+        setTimeout(() => {
+            if (unit._animTimer) clearInterval(unit._animTimer);
+            unit._animTimer = null;
+            unit.state = 'standing';
+            unit.animIndex = 0;
+        }, steps * speed);
+    }
+
+    animatePoint(unit, duration = 600) {
+        if (!unit) return;
+        unit.state = 'pointing';
+        if (unit._animTimer) { clearInterval(unit._animTimer); unit._animTimer = null; }
+        setTimeout(() => {
+            unit.state = 'standing';
+        }, duration);
+    }
+
+    // Encontrar ruta sencilla (BFS) evitando casillas ocupadas
+    findPath(startX, startY, goalX, goalY) {
+        const q = [{x: startX, y: startY}];
+        const visited = new Set([`${startX},${startY}`]);
+        const parent = {};
+        const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+
+        while (q.length > 0) {
+            const cur = q.shift();
+            if (cur.x === goalX && cur.y === goalY) {
+                const path = [];
+                let k = `${goalX},${goalY}`;
+                while (k && k !== `${startX},${startY}`) {
+                    const [px, py] = k.split(',').map(Number);
+                    path.unshift({x: px, y: py});
+                    k = parent[k];
+                }
+                return path;
+            }
+            for (const d of dirs) {
+                const nx = cur.x + d[0];
+                const ny = cur.y + d[1];
+                if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+                if (this.map[ny][nx] !== 0) continue;
+                // allow goal tile even if occupied (it will be captured)
+                if (this.units.some(u => u.x === nx && u.y === ny && !(nx === goalX && ny === goalY))) continue;
+                const key = `${nx},${ny}`;
+                if (visited.has(key)) continue;
+                visited.add(key);
+                parent[key] = `${cur.x},${cur.y}`;
+                q.push({x: nx, y: ny});
+            }
+        }
+        return null;
+    }
+
+    // Mover unidad paso a paso por una ruta
+    moveUnitAlongPath(unit, path, stepDelay = 260) {
+        if (!path || path.length === 0) return;
+        const step = () => {
+            if (path.length === 0) {
+                unit.hasMoved = true;
+                this.updateUI();
+                return;
+            }
+            const next = path.shift();
+            this.playSound('marchaPaso');
+            this.animateWalk(unit, 6, 180);
+            setTimeout(() => {
+                unit.x = next.x;
+                unit.y = next.y;
+                // continue
+                step();
+            }, stepDelay);
+        };
+        step();
     }
 
     setupAssetInputs() {
@@ -332,6 +419,8 @@ class Game {
 
     selectUnit(unit) {
         this.selectedUnit = unit;
+    unit.state = 'standing';
+    unit.animIndex = 0;
         this.validMoves = unit.hasMoved ? [] : this.calculateMoves(unit);
         this.validAttacks = unit.hasAttacked ? [] : this.calculateAttacks(unit);
     }
@@ -394,27 +483,43 @@ class Game {
     }
 
     moveUnit(unit, x, y) {
-        unit.x = x;
-        unit.y = y;
-        unit.hasMoved = true;
-        this.playSound('marchaPaso');
-        this.log(`${unit.stats.name} se mueve a (${x},${y})`, unit.side);
-        
-        this.validMoves = [];
-        this.validAttacks = unit.hasAttacked ? [] : this.calculateAttacks(unit);
-        this.updateUI();
+        // if x is an array, treat it as a precomputed path
+        if (Array.isArray(x)) {
+            const path = x.slice();
+            this.moveUnitAlongPath(unit, path);
+            this.validMoves = [];
+            this.validAttacks = unit.hasAttacked ? [] : this.calculateAttacks(unit);
+            return;
+        }
+        const path = this.findPath(unit.x, unit.y, x, y);
+        if (path && path.length > 0) {
+            this.moveUnitAlongPath(unit, path);
+            this.validMoves = [];
+            this.validAttacks = unit.hasAttacked ? [] : this.calculateAttacks(unit);
+        } else {
+            unit.x = x;
+            unit.y = y;
+            unit.hasMoved = true;
+            this.log(`${unit.stats.name} se mueve a (${x},${y})`, unit.side);
+            this.validMoves = [];
+            this.validAttacks = unit.hasAttacked ? [] : this.calculateAttacks(unit);
+            this.updateUI();
+        }
     }
 
     attackUnit(attacker, defender) {
         const damage = Math.floor(Math.random() * 3) + 2;
         defender.hp -= damage;
         attacker.hasAttacked = true;
-        
-    this.playSound('disparo');
-    // pequeño retardo para impacto
-    setTimeout(() => this.playSound('impacto'), 120);
 
-    this.log(`${attacker.stats.name} ataca a ${defender.stats.name} (-${damage} HP)`, attacker.side);
+        // show pointing animation for attacker
+        this.animatePoint(attacker, 600);
+
+        this.playSound('disparo');
+        // pequeño retardo para impacto
+        setTimeout(() => this.playSound('impacto'), 120);
+
+        this.log(`${attacker.stats.name} ataca a ${defender.stats.name} (-${damage} HP)`, attacker.side);
 
         if (defender.hp <= 0) {
             this.units = this.units.filter(u => u !== defender);
@@ -465,11 +570,13 @@ class Game {
                         let dy = Math.sign(target.y - enemy.y);
                         
                         if (dx !== 0 && this.isValidMove(enemy, enemy.x + dx, enemy.y)) {
-                            enemy.x += dx;
                             this.playSound('marchaPaso');
+                            this.animateWalk(enemy, 5, 120);
+                            setTimeout(() => { enemy.x += dx; }, 180);
                         } else if (dy !== 0 && this.isValidMove(enemy, enemy.x, enemy.y + dy)) {
-                            enemy.y += dy;
                             this.playSound('marchaPaso');
+                            this.animateWalk(enemy, 5, 120);
+                            setTimeout(() => { enemy.y += dy; }, 180);
                         }
                     }
                 }
@@ -604,23 +711,55 @@ class Game {
                 this.ctx.globalAlpha = 0.5;
             }
 
-            const sprite = u.side === 'player' ? this.playerSprite : this.enemySprite;
-            if (sprite) {
-                // dibujar centrado y ajustado al tile
-                if (u.side === 'player') {
-                    // dibujar espejo horizontal dentro del tile con padding de 4px
-                    const drawW = TILE_SIZE - 8;
-                    const drawH = TILE_SIZE - 8;
-                    // trasladar al extremo derecho del tile menos padding superior, escalar en X a -1 y dibujar en 0,0
-                    this.ctx.save();
-                    this.ctx.translate(u.x * TILE_SIZE + TILE_SIZE - 4, u.y * TILE_SIZE + 4);
-                    this.ctx.scale(-1, 1);
-                    this.ctx.drawImage(sprite, 0, 0, drawW, drawH);
-                    this.ctx.restore();
+            // prefer spriteSets if present
+            let drawn = false;
+            const setKey = u.side === 'player' ? 'criolloA' : 'britanico';
+            const set = (this.spriteSets && this.spriteSets[setKey]) ? this.spriteSets[setKey] : null;
+            if (set) {
+                let imgToDraw = null;
+                if (u.state === 'walking') {
+                    const frames = set.walk;
+                    imgToDraw = frames[u.animIndex % frames.length];
+                } else if (u.state === 'pointing') {
+                    imgToDraw = set.pointing;
                 } else {
-                    this.ctx.drawImage(sprite, u.x * TILE_SIZE + 4, u.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    imgToDraw = set.standing;
                 }
-            } else {
+
+                if (imgToDraw && imgToDraw.complete) {
+                    if (u.side === 'player') {
+                        const drawW = TILE_SIZE - 8;
+                        const drawH = TILE_SIZE - 8;
+                        this.ctx.save();
+                        this.ctx.translate(u.x * TILE_SIZE + TILE_SIZE - 4, u.y * TILE_SIZE + 4);
+                        this.ctx.scale(-1, 1);
+                        this.ctx.drawImage(imgToDraw, 0, 0, drawW, drawH);
+                        this.ctx.restore();
+                    } else {
+                        this.ctx.drawImage(imgToDraw, u.x * TILE_SIZE + 4, u.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    }
+                    drawn = true;
+                }
+            }
+
+            if (!drawn) {
+                const sprite = u.side === 'player' ? this.playerSprite : this.enemySprite;
+                if (sprite) {
+                    // dibujar centrado y ajustado al tile
+                    if (u.side === 'player') {
+                        // dibujar espejo horizontal dentro del tile con padding de 4px
+                        const drawW = TILE_SIZE - 8;
+                        const drawH = TILE_SIZE - 8;
+                        // trasladar al extremo derecho del tile menos padding superior, escalar en X a -1 y dibujar en 0,0
+                        this.ctx.save();
+                        this.ctx.translate(u.x * TILE_SIZE + TILE_SIZE - 4, u.y * TILE_SIZE + 4);
+                        this.ctx.scale(-1, 1);
+                        this.ctx.drawImage(sprite, 0, 0, drawW, drawH);
+                        this.ctx.restore();
+                    } else {
+                        this.ctx.drawImage(sprite, u.x * TILE_SIZE + 4, u.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    }
+                } else {
                 this.ctx.fillStyle = u.side === 'player' ? COLORS.PLAYER_UNIT : COLORS.ENEMY_UNIT;
                 this.ctx.beginPath();
                 this.ctx.arc(cx, cy, TILE_SIZE / 2 - 5, 0, Math.PI * 2);
@@ -633,6 +772,7 @@ class Game {
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText(u.stats.icon, cx, cy);
+                }
             }
 
             // Barra de vida
@@ -669,6 +809,34 @@ class Game {
         eImg.onload = () => { this.enemySprite = eImg; this.log('Sprite enemigo por defecto cargado (assets/britanico/00.standing.a.png).', 'system'); };
         eImg.onerror = () => this.log('No se pudo cargar sprite enemigo por defecto.', 'system');
         eImg.src = 'assets/britanico/00.standing.a.png';
+
+        // cargar sets de sprites (frames)
+        this.spriteSets = this.spriteSets || {};
+        const loadImg = (path) => { const im = new Image(); im.src = path; return im; };
+
+        // criolloA frames
+        this.spriteSets.criolloA = {
+            standing: loadImg('assets/criolloA/00.standing.png'),
+            pointing: loadImg('assets/criolloA/01.pointing.png'),
+            walk: [
+                loadImg('assets/criolloA/02.walk.a.png'),
+                loadImg('assets/criolloA/03.walk.b.png'),
+                loadImg('assets/criolloA/04.walk.c.png'),
+                loadImg('assets/criolloA/05.walk.d.png')
+            ]
+        };
+
+        // britanico frames
+        this.spriteSets.britanico = {
+            standing: loadImg('assets/britanico/00.standing.a.png'),
+            pointing: loadImg('assets/britanico/01.pointing.png'),
+            walk: [
+                loadImg('assets/britanico/02.walk.a.png'),
+                loadImg('assets/britanico/03.walk.b.png'),
+                loadImg('assets/britanico/04.walk.c.png'),
+                loadImg('assets/britanico/05.walk.d.png')
+            ]
+        };
     }
 }
 
